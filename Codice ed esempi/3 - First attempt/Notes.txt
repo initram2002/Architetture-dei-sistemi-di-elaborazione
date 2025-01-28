@@ -1,0 +1,35 @@
+Preferenze:
+- No maiuscolo.
+- Utilizzo di 'r' al posto di '$'.
+- Commenti solo per soffermarsi su certe istruzioni.
+
+Nella porzione di dato (.data) ci sono già dei valori:
+- Il byte 0x1 va a finire nella locazione meno significativa.
+- Il secondo byte 0xea occupa la locazione meno significativa successiva alla precedente.
+- In v3 è stata definita la word in esadecimale "CiaoCiaoBaciBaci". Ogni cifra esadecimale corrisponde a 4 bit, ovvero a un nibble 
+(metà di un byte).
+- In v5 sono presenti 2 numeri decimali, che vengono convertiti in floating-point memorizzando esponente, mantissa e segno. Se entrambi 
+sono positivi, l'ultimo bit è a 0. Nei registri, il valore viene visualizzato con la notazione decimale.
+
+La memorizzazione avviene con criterio Little Endian.
+Il loader è vincolato ad una specifica dimensione, ovvero 64 bit. Viene istruito affinché i bit inutilizzati vengano impostati a 0.
+
+
+I registri, al caricamento del programma su WinMIPS64, vengono tutti resettati. 
+Alcuni sono interi e altri sono floating-point.
+
+Guardando il codice su WinMIPS64, il disassemblato mostra un codice di '146ffffd'. Il salto deve essere fatto all'indietro. 
+Alcuni bit sono destinati al tipo di salto, mentre altri indicano la lunghezza del salto. Questi bit sono settati a 'f'. 
+Il delta è negativo, per cui è necessario sottrarre una certa quantità al Program Counter. 
+Tale quantità è codificata all'interno dell'istruzione.
+
+Questo codice dovrebbe eseguire accessi alle porzioni di dato create.
+
+In WinMIPS64 è possibile utilizzare "Run to" per far eseguire il programma fino a una certa istruzione, selezionata dalla sezione "Code"
+e che si colora di blu. Quest'ultima azione corrisponde al mettere un breakpoint.
+
+Con F7 oppure Single Cycle l'esecuzione viene effettuata passo passo. 
+
+Il full reset cancella anche la memoria, in quanto supponiamo che il codice risieda in una porzione di memoria non volatile.
+
+Prima di vedere i registri aggiornati è necessario giungere alla fase di Write-Back (colore viola).
