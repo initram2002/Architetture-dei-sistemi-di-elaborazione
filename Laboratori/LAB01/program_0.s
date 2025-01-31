@@ -41,3 +41,5 @@ continue:
     dadd    r2, r0, r0
     daddi   r1, r1, 1
     bne     r1, r10, extLoop
+
+    halt
