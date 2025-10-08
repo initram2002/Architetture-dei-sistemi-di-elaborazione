@@ -1,0 +1,18 @@
+TODO:
+oracle virtual box
+1. download VirtualBox 7.2.2 platform packages for your OS
+- windows
+- mac
+- ...
+
+2. download the VirtualBox Extension Pack
+
+3. install the oracle VirtualBox & the Extension Pack
+
+4. download the virtual machine for ASE (from the course site, tools folder) 
+
+5. import the virtual machine
+
+6. enjoy
+
+password 0000
