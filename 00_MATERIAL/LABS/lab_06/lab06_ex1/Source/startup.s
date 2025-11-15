@@ -125,10 +125,17 @@ var				RN 		2
 Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
-				;your code here
-				orr r0,r0,#1
-				mov r1, r2	
+				; 1) Inizializzazione (valori di default)
+				LDR		R3, =0x00000000 			; da modificare in debug
+				LDR		R4, =0x00000000				; da modificare in debug
+				LDR		R5, =0x00000000				; da modificare in debug
 				
+				; 2) R6 = R4 - R3 (aggiorna i flag)
+				SUBS	R6, R4, R3					; R6 = R4 - R3
+
+				; 3) R7 = R4 + R5 (aggiorna i flag)
+				ADDS	R7, R4, R5					; R7 = R4 + R5
+								
 				LDR     R0, =stop
 				
 stop            BX      R0
