@@ -115,7 +115,9 @@ __Vectors       DCD     __initial_sp              ; Top of Stack
                 AREA    |.ARM.__at_0x02FC|, CODE, READONLY
 CRP_Key         DCD     0xFFFFFFFF
                 ENDIF
-
+					
+				AREA    My_data, NOINIT, READWRITE
+NEW_MATRIX		SPACE	5 * 4 * 4
 
 var				RN 		2
 
@@ -126,19 +128,40 @@ Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
 				;your code here
+RIG 		EQU		5
+COL			EQU		4
 				
 constant	RN		1	; R1 constant
 i			RN		2	
 j			RN		3
 			
 				LDR 	R4, =MATRIX
-				MOV 	constant, #0x12
-				LDR		constant, =0x12345678				
+				LDR		R5, =NEW_MATRIX
+				LDR		constant, =0x12345678
+				EOR		i, i, i
 	
 				; for (i = 0; i < RIG; i++) {
+external_loop
+				EOR		j, j, j
 				; 	for (j = 0; j < COL; j++) {
+internal_loop
+				MOV		R0, #4
+				MUL		R0, R0, i
+				ADD		R0, R0, j
 				;		NEW_MATRIX[i][j] = MATRIX[i][j] * const;
+				LDR		R6, [R4, R0, LSL #2]
+				MUL 	R6, R6, constant
+				STR		R6, [R5, R0, LSL #2]
+				ADDS	j, j, #1
+				CMP		j,  #COL				
+				BLT		internal_loop
+				
+				ADDS	i, i, #1
+				CMP		i, #RIG
+				BLT		external_loop
+				
 				LDR     R0, =stop
+				EOR		R0, R0, #1
 				
 stop            BX      R0
                 ENDP

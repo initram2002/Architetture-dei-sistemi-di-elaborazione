@@ -125,10 +125,35 @@ var				RN 		2
 Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
-				;your code here
-				orr r0,r0,#1
-				mov r1, r2	
+                ;----------------------------------------
+				; Inizializzazione variabile in R10
+				; R10 = 0b00110101 = 0x35
+				;----------------------------------------
+				MOV 	R10, #0x35		; variabile da controllare
+
+                ;----------------------------------------
+				; Calcolo bit di parità
+				; R3 = accumulatore di parità (0 = pari, 1 = dispari)
+				; R2 = contatore dei bit (32 bit del registro)
+				; R0 = bit corrente estratto da R10
+                ;----------------------------------------
+				MOVS	R3, #0			; parità iniziale = 0
+				MOVS 	R2, #32			; numero di bit da esaminare
+
+parity_loop
+				ANDS 	R0, R10, #1		; R0 = R10 & 1 (bit meno significativo)
+				EORS	R3, R3, R0		; parità ^= bit corrente
+				LSRS	R10, R10, #1	; R10 >> 1 (logico a destra)
+				SUBS	R2, R2, #1		; R2--
+				BNE		parity_loop		; se R2 != 0, continua
 				
+				; A questo punto:
+				;	R3 = 0 se numero di 1 in R10 è pari
+				; 	R3 = 1 se numero di 1 in R10 è dispari
+				
+				; Copia il risultato in R13 (SP)
+				MOV		SP, R3			; R13 = bit di parità (0 o 1)
+
 				LDR     R0, =stop
 				
 stop            BX      R0

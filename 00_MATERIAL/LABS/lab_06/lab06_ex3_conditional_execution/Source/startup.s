@@ -125,9 +125,29 @@ var				RN 		2
 Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
-				;your code here
-				orr r0,r0,#1
-				mov r1, r2	
+				; 1) Inizializza R1 e R2 con valori con segno
+				; (qui: R1 = 7, R2 = -5)
+				LDR		R1, =7
+				; LDR		R2, =-5
+				LDR		R2, =7
+				
+				; 2) Confronto R1 e R2 (signed compare)
+				CMP		R1, R2
+				
+				; Se R1 > R2 (signed), R8 = R1
+				MOVGT	R8, R1
+				
+				; Se R1 < R2 (signed), R8 = R2
+				MOVLT	R8, R2
+				; Nota: se sono uguali, nessuna delle due MOV viene eseguita
+				
+				; Caso R1 == R2:
+				; R9 = R2 - (R1 >> 1), con shift logico a destra di 1.
+				; Usiamo un registro temporaneo R3.
+				; MOV con operando shiftato NON aggiorna i flag, quindi
+				; la condizione EQ resta valida per l'istruzione successiva.
+				MOVEQ	R3, R1, LSR #1	; R3 = R1 >> 1 (logical), solo se R1 == R2
+				SUBEQ	R9, R2, R3		; R9 = R2 - R3, solo se R1 == R2
 				
 				LDR     R0, =stop
 				

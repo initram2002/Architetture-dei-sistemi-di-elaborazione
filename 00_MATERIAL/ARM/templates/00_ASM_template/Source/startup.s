@@ -126,21 +126,9 @@ Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
 				;your code here
-; If R4 == R3, then R0 = R1
-; Else R0 = R2
-
-;				subs	R5, R4, R3
-;				beq 	con_r1
-; con_r2			mov		R0, R2
-; 				b		fine
-
-; con_r1			mov		R0, R1
-
-				SUBS	R4, R4, R3
-				MOVEQ	R0, R1
-				MOVNE	R0, R2
-
-fine				
+				orr r0,r0,#1
+				mov r1, r2	
+				
 				LDR     R0, =stop
 				
 stop            BX      R0
