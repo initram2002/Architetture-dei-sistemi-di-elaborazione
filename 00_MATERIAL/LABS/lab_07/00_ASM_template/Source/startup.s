@@ -127,43 +127,131 @@ var				RN 		2
 Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
-; ----------------- Design / Register mapping -------------
-; R0 = &Cards				; base address cards IDs table
-; R1 = &PurchasePrice		; base address purchase price table
-; R2 = &CurrentPrice		; base address current price table
-; R3 = &Condition			; base address condition table
+;----------------------------------------------------------
+; Design registri
+; R0 = &Cards
+; R1 = &PurchasePrice
+; R2 = &CurrentPrice
+; (R3 usato come registro temporaneo)
 ;
-; R4 = i					; index delle carte [0, ..., NumCards - 1]
-; R5 = NumCards				; numero di carte (#Cards)
-; R6 = puntatore temporaneo per scansione tabella (inner loop)
+; R4 = i			; indice delle carte [0, ..., NumCards - 1]
+; R5 = NumCards		; numero di carte (#Cards)
+; R6 = offset/puntatore temporaneo
 ; R7 = cardID corrente
 ; R8 = purchase price della carta corrente
 ; R9 = current price della carta corrente
 ;
-; R10 = somma dei (current - purchase) per le carte con guadagno
-; R11 = numero di carte con current price > purchase price
-;
-; ----------------- Algoritmo ad alto livello -------------
-; 1) Inizializzazione:
-; 	- Caricare in R0 - R3 gli indirizzi delle tabelle
-; 	- Leggere #Cards (byte) in R5
-; 	- Azzerare R4 (i), R10 (somma guadagni) e R11 (conteggio carte)
-;
-; 2) Loop principale sulle carte (indice i in R4):
-;	while(i < NumCards) {
-;		a) Leggere cardID = Cards[i] in R7
-;		b) Cercare il cardID in PurchasePrice per trovare il purchase
-;			(scansione della tabella di coppie (ID, prezzo) usando R6)
-;		c) Cercare il cardID in CurrentPrice per trovare il current
-;		d) Se current > purchase:
-;			R11++
-;			R10 += (current - purchase)
-;		e) i++ (R4) e passare alla carta successiva
-;	}
-;
-; 3) Al termine, R10 e R11 contengono i risultati richiesti.
-; Il programma resta in un loop infinito
+; R10 = somma dei (current - purchase) per carte con guadagno
+; R11 = numero di carte con current price > purchase
+; R12 = indice interno per la scansione delle tabelle (j)
+;----------------------------------------------------------
+
+; Base address delle tabelle
+				LDR		R0, =Cards					; &Cards
+				LDR		R1, =PurchasePrice			; &PurchasePrice
+				LDR		R2, =CurrentPrice			; &CurrentPrice
+				; LDR	R3, =Condition				; non usato in questa fase
 				
+; Carica #Cards (byte) in R5
+				LDR		R6, =NumCards
+				LDRB	R5, [R6]					; R5 = numero di carte
+				
+; Inizializza contatori/accumulatori
+				MOV		R4, #0						; i = 0
+				MOV		R10, #0						; somma guadagni
+				MOV		R11, #0						; conteggio carte in guadagno
+				
+;----------------------------------------------------------
+; Loop principale sulle carte
+;----------------------------------------------------------
+main_loop
+				CMP		R4, R5						; i >= NumCards ?
+				BGE		done						; sì -> fine
+				
+; R7 = Cards[i]
+				MOV		R6, R4
+				LSL		R6, R6, #2					; offset i * 4 (word)
+				LDR		R7, [R0, R6]				; cardID corrente
+				
+;==========================================================
+; 1) Cerca il purchase price della carta in PurchasePrice
+;	(tabella di coppie (ID, prezzo) -> 8 byte per entry)
+;==========================================================
+				MOV		R8, #0						; default se non trovata
+				MOV		R12, #0						; j = 0
+				
+find_purchase
+				CMP		R12, R5						; j >= NumCards ?
+				BGE		purchase_done				; sì -> esci (R8 resta com'è)
+				
+				MOV 	R6, R12
+				LSL		R6, R6, #3					; offset = j * 8
+				ADD		R6, R1, R6					; R6 = &PurchasePrice[j * 2]
+				
+				LDR		R3, [R6]					; ID_j
+				CMP		R3, R7						; ID_j == cardID ?
+				BNE		next_purchase
+				
+				LDR		R8, [R6, #4]				; purchase price trovato
+				B 		purchase_done
+				
+next_purchase
+				ADD		R12, R12, #1				; j++
+				B		find_purchase
+				
+purchase_done
+; ora R8 contiene il prezzo d'acquisto (0 se non trovato)
+
+;==========================================================
+; 2) Cerca il current price della carta in CurrentPrice
+;==========================================================
+				MOV		R9, #0						; default se non trovata
+				MOV 	R12, #0						; j = 0
+				
+find_current
+				CMP		R12, R5						; j >= NumCards ?
+				BGE		current_done				; sì -> esci (R9 resta com'è)
+				
+				MOV 	R6, R12
+				LSL		R6, R6, #3					; offset = j * 8
+				ADD		R6, R2, R6					; R6 = &CurrentPrice[j * 2]
+				
+				LDR		R3, [R6]					; ID_j
+				CMP		R3, R7						; ID_j == cardID ?
+				BNE		next_current
+				
+				LDR		R9, [R6, #4]				; current price trovato
+				B		current_done
+				
+next_current
+				ADD		R12, R12, #1				; j++
+				B		find_current
+				
+current_done
+; ora R8 = purchase, R9 = current per la carta corrente
+; (oppure 0 se non trovati)
+
+;==========================================================
+; 3) Se current > purchase:
+; 		- incrementa R11 (conteggio)
+;		- somma (current - purchase) in R10
+;==========================================================
+				CMP		R9, R8
+				BLE		no_gain						; se current <= purchase -> niente
+				
+				SUB		R6, R9, R8					; R6 = current - purchase
+				ADD		R10, R10, R6				; accumula nella somma
+				ADD		R11, R11, #1				; una carta in guadagno
+				
+no_gain
+; prossima carta (i++)
+				ADD		R4, R4, #1	
+				B		main_loop
+				
+;==========================================================
+; Fine: risultati in R10 (somma) e R11 (conteggio)
+;==========================================================
+done				
 				LDR     R0, =stop
 								
 stop            BX      R0
