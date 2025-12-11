@@ -115,151 +115,321 @@ __Vectors       DCD     __initial_sp              ; Top of Stack
                 AREA    |.ARM.__at_0x02FC|, CODE, READONLY
 CRP_Key         DCD     0xFFFFFFFF
                 ENDIF
-
+					
+				AREA	MYDATA, DATA, READWRITE
+POOR			SPACE 	7 * 4					; al massimo 7 ID (7 carte) -> 28 byte
+GOOD			SPACE	7 * 4
+MINT 			SPACE 	7 * 4
 
 var				RN 		2
 
                 AREA    |.text|, CODE, READONLY
-;===========================================================
-; Reset Handler - Exercise 1 (Magic the Gathering)
-;===========================================================
+; Reset Handler
 
 Reset_Handler   PROC
                 EXPORT  Reset_Handler             [WEAK]                                            
                 
-;----------------------------------------------------------
-; Design registri
-; R0 = &Cards
-; R1 = &PurchasePrice
-; R2 = &CurrentPrice
-; (R3 usato come registro temporaneo)
-;
-; R4 = i			; indice delle carte [0, ..., NumCards - 1]
-; R5 = NumCards		; numero di carte (#Cards)
-; R6 = offset/puntatore temporaneo
-; R7 = cardID corrente
-; R8 = purchase price della carta corrente
-; R9 = current price della carta corrente
-;
-; R10 = somma dei (current - purchase) per carte con guadagno
-; R11 = numero di carte con current price > purchase
-; R12 = indice interno per la scansione delle tabelle (j)
-;----------------------------------------------------------
+			    ; -------------------------------------------------
+				; FASE 1: costruzione vettori POOR/GOOD/MINT
+				; -------------------------------------------------
+				
+				LDR		R2, =Condition			; R2 = ptr corrente Condition
+				LDR		R0, =NumCards
+				LDRB	R1, [R0]				; R1 = N (#Cards)
+				
+				LDR		R4, =POOR				; base vettori
+				LDR		R5, =GOOD
+				LDR		R6, =MINT
+				
+				MOVS	R7, #0					; poorCount
+				MOVS	R8, #0					; goodCount
+				MOVS	R9, #0					; mintCount
+			
+ClassLoop
+				CMP		R1, #0
+				BEQ		ClassDone
+				
+				LDR		R3, [R2]				; R3 = ID
+				LDR		R0, [R2, #4]			; R0 = cond
+				ADD		R2, R2, #8				; entry successiva
+				SUBS	R1, R1, #1
+				
+				CMP		R0, #0
+				BEQ		ClassPoor
+				CMP		R0, #1
+				BEQ		ClassGood
+				; altrimenti cond = 2 (MINT)
+	
+ClassMint		
+				MOV		R10, R9
+				LSL		R10, R10, #2
+				ADD		R10, R6, R10
+				STR		R3, [R10]				; scrivi ID in MINT[mintCount]
+				ADDS	R9, R9, #1
+				B 		ClassLoop
+				
+ClassPoor
+				MOV		R10, R7
+				LSL		R10, R10, #2
+				ADD		R10, R4, R10
+				STR		R3, [R10]				; scrivi ID in POOR[poorCount]
+				ADDS	R7, R7, #1
+				B		ClassLoop
+				
+ClassGood
+				MOV 	R10, R8
+				LSL		R10, R10, #2
+				ADD		R10, R5, R10
+				STR		R3, [R10]				; scrivi ID in GOOD[goodCount]
+				ADDS	R8, R8, #1
+				B		ClassLoop
+				
+ClassDone
+				
+                ; -------------------------------------------------
+				; FASE 2: ordinamento per differenza di prezzo
+                ; -------------------------------------------------
+				
+				; ordina vettore POOR
+				MOV		R0, R4					; base POOR
+				MOV		R1, R7					; len = poorCount
+				BL		SortVector
+				
+				; ordina vettore GOOD
+				MOV		R0, R5
+				MOV		R1, R8
+				BL		SortVector
+				
+				; ordina vettore MINT
+				MOV		R0, R6
+				MOV		R1, R9
+				BL		SortVector
+				
+                ; -------------------------------------------------
+				; FASE 3: carta con perdita massima
+				;			loss = purchasePrice - currentPrice
+				; -------------------------------------------------
 
-; Base address delle tabelle
-				LDR		R0, =Cards					; &Cards
-				LDR		R1, =PurchasePrice			; &PurchasePrice
-				LDR		R2, =CurrentPrice			; &CurrentPrice
-				; LDR	R3, =Condition				; non usato in questa fase
+				LDR		R2, =PurchasePrice		; iteriamo PurchasePrice
+				LDR		R0, =NumCards
+				LDRB	R1, [R0]				; R1 = N
 				
-; Carica #Cards (byte) in R5
-				LDR		R6, =NumCards
-				LDRB	R5, [R6]					; R5 = numero di carte
+				MOVS	R10, #0					; maxLoss finora
+				MOVS	R11, #0					; bestID
+				MOVS	R12, #0					; bestCond
 				
-; Inizializza contatori/accumulatori
-				MOV		R4, #0						; i = 0
-				MOV		R10, #0						; somma guadagni
-				MOV		R11, #0						; conteggio carte in guadagno
+LossLoop
+				CMP		R1, #0
+				BEQ		AllDone
 				
-;----------------------------------------------------------
-; Loop principale sulle carte
-;----------------------------------------------------------
-main_loop
-				CMP		R4, R5						; i >= NumCards ?
-				BGE		done						; sì -> fine
+				LDR		R0, [R2]				; R0 = ID
+				ADD		R2, R2, #8
+				SUBS	R1, R1, #1
 				
-; R7 = Cards[i]
-				MOV		R6, R4
-				LSL		R6, R6, #2					; offset i * 4 (word)
-				LDR		R7, [R0, R6]				; cardID corrente
+				; diff = current - purchase
+				MOV		R3, R0					; salva ID corrente in R14
+				BL		GetDiff					; R0 = diff
 				
-;==========================================================
-; 1) Cerca il purchase price della carta in PurchasePrice
-;	(tabella di coppie (ID, prezzo) -> 8 byte per entry)
-;==========================================================
-				MOV		R8, #0						; default se non trovata
-				MOV		R12, #0						; j = 0
+				CMP		R0, #0
+				BGE		NoLoss					; diff >= 0 => nessuna perdita
 				
-find_purchase
-				CMP		R12, R5						; j >= NumCards ?
-				BGE		purchase_done				; sì -> esci (R8 resta com'è)
+				; loss = -diff = purchase - current
+				RSBS	R0, R0, #0				; R0 = loss (positivo)
 				
-				MOV 	R6, R12
-				LSL		R6, R6, #3					; offset = j * 8
-				ADD		R6, R1, R6					; R6 = &PurchasePrice[j * 2]
+				CMP		R0, R10
+				BLS		NoLoss					; loss <= maxLoss -> ignora
 				
-				LDR		R3, [R6]					; ID_j
-				CMP		R3, R7						; ID_j == cardID ?
-				BNE		next_purchase
+				; nuovo massimo
+				MOV		R10, R0					; aggiornato maxLoss
+				MOV		R11, R3					; bestID = ID corrente
 				
-				LDR		R8, [R6, #4]				; purchase price trovato
-				B 		purchase_done
+				; bestCond = cond(ID)
+				MOV		R0, R3
+				BL		GetCondition			; R0 = cond
+				MOV		R12, R0
 				
-next_purchase
-				ADD		R12, R12, #1				; j++
-				B		find_purchase
+NoLoss
+				B 		LossLoop
 				
-purchase_done
-; ora R8 contiene il prezzo d'acquisto (0 se non trovato)
-
-;==========================================================
-; 2) Cerca il current price della carta in CurrentPrice
-;==========================================================
-				MOV		R9, #0						; default se non trovata
-				MOV 	R12, #0						; j = 0
-				
-find_current
-				CMP		R12, R5						; j >= NumCards ?
-				BGE		current_done				; sì -> esci (R9 resta com'è)
-				
-				MOV 	R6, R12
-				LSL		R6, R6, #3					; offset = j * 8
-				ADD		R6, R2, R6					; R6 = &CurrentPrice[j * 2]
-				
-				LDR		R3, [R6]					; ID_j
-				CMP		R3, R7						; ID_j == cardID ?
-				BNE		next_current
-				
-				LDR		R9, [R6, #4]				; current price trovato
-				B		current_done
-				
-next_current
-				ADD		R12, R12, #1				; j++
-				B		find_current
-				
-current_done
-; ora R8 = purchase, R9 = current per la carta corrente
-; (oppure 0 se non trovati)
-
-;==========================================================
-; 3) Se current > purchase:
-; 		- incrementa R11 (conteggio)
-;		- somma (current - purchase) in R10
-;==========================================================
-				CMP		R9, R8
-				BLE		no_gain						; se current <= purchase -> niente
-				
-				SUB		R6, R9, R8					; R6 = current - purchase
-				ADD		R10, R10, R6				; accumula nella somma
-				ADD		R11, R11, #1				; una carta in guadagno
-				
-no_gain
-; prossima carta (i++)
-				ADD		R4, R4, #1	
-				B		main_loop
-				
-;==========================================================
-; Fine: risultati in R10 (somma) e R11 (conteggio)
-;==========================================================
-done				
-				LDR     R0, =stop
+AllDone
+				; A questo punto:
+				; R11 = ID della carta con perdita massima
+				; R12 = condizione corrispondente (0/1/2)
 								
+				LDR     R0, =stop
+				
 stop            BX      R0
-
-				LTORG		; il literal pool viene emesso qui
-
+				
                 ENDP
+					
+;-----------------------------------------------------------------
+; R0 = Card ID
+; R0 (ritorno) = currentPrice - purchasePrice (può essere negativo)
+; Usa: tabelle PurchasePrice, CurrentPrice, NumCards
+;-----------------------------------------------------------------
+GetDiff			PROC
+				PUSH	{R1-R7, LR}
+				
+				; carica #Cards
+				LDR		R1, =NumCards
+				LDRB	R1, [R1]				; R1 = N
+				
+				
+                ; ---------- cerca purchase price ----------
+				LDR		R2, =PurchasePrice		; base Purchase
+				MOVS	R3, #0					; i = 0
+				
+GD_findP_loop
+				CMP		R3, R1
+				BCS		GD_findP_done			; safety
+				
+				ADD		R4, R2, R3, LSL #3		; &entry[i] (8 byte per entry)
+				LDR		R5, [R4]				; id_i
+				LDR		R6, [R4, #4]			; purchase_i
+				CMP		R5, R0
+				BEQ		GD_foundP
+				ADDS	R3, R3, #1
+				B		GD_findP_loop
+				
+GD_foundP		
+				MOV		R7, R6					; purchase -> R7
+				
+GD_findP_done
 
+				; ---------- cerca current price ----------
+				LDR		R2, =CurrentPrice
+				MOVS	R3, #0					; i = 0
+				
+GD_findC_loop
+				CMP		R3, R1
+				BCS		GD_findC_done			; safety
+				
+				ADD		R4, R2, R3, LSL #3
+				LDR 	R5, [R4]				; id_i
+				LDR		R6, [R4, #4]			; current_i
+				CMP		R5, R0
+				BEQ		GD_foundC
+				ADDS	R3, R3, #1
+				B		GD_findC_loop
+				
+GD_foundC
+				MOV		R1, R6					; current -> R1
+				
+GD_findC_done
+				; diff = current - purchase
+				SUB		R0, R1, R7
+				
+				POP		{R1-R7, PC}
+				ENDP
+					
+;-----------------------------------------------------------------
+; R0 = Card ID
+; R0 (ritorno) = condition (0 = POOR, 1 = GOOD, 2 = MINT)
+;-----------------------------------------------------------------
+GetCondition	PROC
+				PUSH	{R1-R4, LR}
+				
+				LDR		R1, =NumCards
+				LDRB	R1, [R1]				; R1 = N
+				LDR		R2, =Condition			; base Condition
+				MOVS	R3, #0					; i = 0
+				
+GC_loop			
+				CMP		R3, R1
+				BCS		GC_notFound				; safety, default 0
+				
+				ADD		R4, R2, R3, LSL #3		; &entry[i]
+				LDR		R1, [R4]				; id_i
+				LDR		R4, [R4, #4]			; cond_i
+				CMP		R1, R0
+				BEQ		GC_found
+				ADDS	R3, R3, #1
+				B		GC_loop
+				
+GC_found
+				MOV		R0, R4					; cond -> R0
+				POP		{R1-R4, PC}
+			
+GC_notFound
+				MOVS 	R0, #0
+				POP		{R1-R4, PC}
+				ENDP
+					
+;-----------------------------------------------------------------
+; R0 = base address del vettore (POOR/GOOD/MINT)
+; R1 = length (numero di elementi effettivi)
+; Ordina in-place per differenza crescente (current - purchase)
+;-----------------------------------------------------------------
+SortVector		PROC
+				PUSH	{R2-R7, LR}
+				
+				CMP 	R1, #1
+				BLE		SV_return				; 0 o 1 elemento: già ordinato
+				
+				MOV		R2, R0					; R2 = base del vettore
+				SUBS	R1, R1, #1				; outer loop: n - 1 ripetizioni
+				
+SV_outer
+				MOVS	R2, #0					; j = 0
+				MOV		R4, R1					; limite corrente (n - 1 - u)
+				
+SV_inner		
+				CMP		R3, R4
+				BCS		SV_inner_done
+				
+				; calcola indirizzo elemento j
+				MOV		R4, R3
+				LSL		R5, R5, #2				; offset = j * 4
+				ADD		R5, R2, R5				; R5 = &v[j]
+				
+				LDR		R6, [R5]				; id_j
+				LDR		R7, [R5, #4]			; id_{j + 1}
+				
+				; diff_j
+				MOV		R0, R6
+				BL		GetDiff
+				MOV		R12, R0					; diff_j in R12
+				
+				; diff_{j + 1}
+				MOV		R0, R7
+				BL		GetDiff					; diff_{j + 1} in R0
+				
+				; se diff_j > diff{j + 1} -> swap
+				CMP		R12, R0
+				BLE		SV_no_swap
+				
+				STR		R7, [R5]
+				STR		R6, [R5, #4]
+				
+SV_no_swap
+				ADDS	R3, R3, #1
+				B		SV_inner
+				
+SV_inner_done
+				SUBS 	R1, R1, #1
+				BNE		SV_outer
+				
+SV_return		
+				POP		{R2-R7, PC}
+				ENDP
+					
+				LTORG
+				
+				ALIGN 	2						; allineamento a 2 byte
+ConstBefore		SPACE 	4096					; 4 KB di zeri prima dei dati
+	
+Cards			DCD		0x134, 3, 275, 0x2B9, 0xDC, 151, 2087
+	
+Condition		DCD		2087, 2, 275, 0x0, 308, 0x1, 0xDC, 2, 151, 2, 0x3, 0, 697, 2
+	
+PurchasePrice	DCD		0x3, 2000, 0x113, 2, 151, 9, 0x134, 45, 2087, 17, 220, 5, 697, 350
+	
+CurrentPrice	DCD		0xDC, 3, 151, 16, 3, 3300, 697, 420, 308, 63, 275, 1, 0x827, 3
+	
+NumCards		DCB		7						; #Cards
+		
+				ALIGN	2
+ConstAfter		SPACE	4096					; 4 KB di zeri dopo i dati
 
 ; Dummy Exception Handlers (infinite loops which can be modified)
 
@@ -387,43 +557,10 @@ CANActivity_IRQHandler
                 B       .
 
                 ENDP
-					
-;===========================================================
-; Constant data section
-; - in CODE section
-; - 2-byte alignment
-; - 4096 zero bytes as boundary before and after
-;===========================================================
 
-				ALIGN	2				; allineamento a multiplo di 2 byte
-					
-ConstLowBound	SPACE	4096			; 4KB di zeri prima delle tabelle
-	
-				EXPORT 	Cards
-				EXPORT 	Condition
-				EXPORT	PurchasePrice
-				EXPORT 	CurrentPrice
-				EXPORT 	NumCards
-				EXPORT 	ConstLowBound
-				EXPORT 	ConstHighBound
-	
-; Cards: solo gli ID delle carte (7 carte)	
-Cards			DCD		0x134, 3, 275, 0x2B9, 0xDC, 151, 2087
-	
-; Condition: coppie (ID, condition)
-; 0 = POOR, 1 = GOOD, 2 = MINT
-Condition		DCD		2087, 2, 275, 0x0, 308, 0x1, 0xDC, 2, 151, 2, 0x3, 0, 697, 2
-	
-; Purchase price: coppie (ID, prezzo d'acquisto)
-PurchasePrice	DCD		0x3, 2000, 0x113, 2, 151, 9, 0x134, 45, 2087, 17, 220, 5, 697, 350
 
-; Current price: coppie (ID, prezzo corrente)
-CurrentPrice	DCD		0xDC, 3, 151, 16, 3, 3300, 697, 420, 308, 63, 275, 1, 0x827, 3
+                ALIGN
 
-; #Cards: numero di carte nella collezione
-NumCards		DCB		7
-
-ConstHighBound	SPACE 4096				; 4KB di zeri dopo le tabelle
 
 ; User Initial Stack & Heap
 
