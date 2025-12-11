@@ -301,20 +301,41 @@ CANActivity_IRQHandler
                 ENDP
 					
 ;===========================================================
-; Constant data section in code area
+; Constant data section
+; - in CODE section
+; - 2-byte alignment
+; - 4096 zero bytes as boundary before and after
 ;===========================================================
 
-				ALIGN	2				; allineamento a 2 byte
+				ALIGN	2				; allineamento a multiplo di 2 byte
 					
-const_before	SPACE	4096			; 4096 byte di zeri prima dei dati
+ConstLowBound	SPACE	4096			; 4KB di zeri prima delle tabelle
 	
+				EXPORT 	Cards
+				EXPORT 	Condition
+				EXPORT	PurchasePrice
+				EXPORT 	CurrentPrice
+				EXPORT 	NumCards
+				EXPORT 	ConstLowBound
+				EXPORT 	ConstHighBound
+	
+; Cards: solo gli ID delle carte (7 carte)	
 Cards			DCD		0x134, 3, 275, 0x2B9, 0xDC, 151, 2087
+	
+; Condition: coppie (ID, condition)
+; 0 = POOR, 1 = GOOD, 2 = MINT
 Condition		DCD		2087, 2, 275, 0x0, 308, 0x1, 0xDC, 2, 151, 2, 0x3, 0, 697, 2
+	
+; Purchase price: coppie (ID, prezzo d'acquisto)
 PurchasePrice	DCD		0x3, 2000, 0x113, 2, 151, 9, 0x134, 45, 2087, 17, 220, 5, 697, 350
+
+; Current price: coppie (ID, prezzo corrente)
 CurrentPrice	DCD		0xDC, 3, 151, 16, 3, 3300, 697, 420, 308, 63, 275, 1, 0x827, 3
+
+; #Cards: numero di carte nella collezione
 NumCards		DCB		7
 
-const_after		SPACE 4096				; 4096 byte di zeri dopo i dati
+ConstHighBound	SPACE 4096				; 4KB di zeri dopo le tabelle
 
 ; User Initial Stack & Heap
 
